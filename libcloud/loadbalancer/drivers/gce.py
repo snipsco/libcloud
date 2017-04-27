@@ -175,6 +175,78 @@ class GCELBDriver(Driver):
         # Reformat forwarding rule to LoadBalancer object
         return self._forwarding_rule_to_loadbalancer(forwarding_rule)
 
+    def create_internal_balancer(self, name, port, protocol, algorithm, members,
+                        ex_region=None, ex_healthchecks=None, ex_address=None,
+                        ex_session_affinity=None):
+        """
+        Create a new internal load balancer instance.
+
+        For GCE, this means creating a regional backend service and an internal
+        forwarding rule.
+
+        :param  name: Name of the new load balancer (required)
+        :type   name: ``str``
+
+        :param  port: Port or range of ports the load balancer should listen
+                      on, defaults to all ports.  Examples: '80', '5000-5999'
+        :type   port: ``str``
+
+        :param  protocol: Load balancer protocol.  Should be 'tcp' or 'udp',
+                          defaults to 'tcp'.
+        :type   protocol: ``str``
+
+        :param  members: List of members to attach to balancer. Members are
+                         instance groups.
+        :type   members: ``list`` of :class:`Member` or :class:`Node`
+
+        :param  algorithm: Load balancing algorithm.  Ignored for GCE which
+                           uses a hashing-based algorithm.
+        :type   algorithm: :class:`Algorithm` or ``None``
+
+        :keyword  ex_region:  Optional region to create the load balancer in.
+                              Defaults to the default region of the GCE Node
+                              Driver.
+        :type     ex_region:  C{GCERegion} or ``str``
+
+        :keyword  ex_healthchecks: Optional list of healthcheck objects or
+                                   names to add to the load balancer.
+        :type     ex_healthchecks: ``list`` of :class:`GCEHealthCheck` or
+                                   ``list`` of ``str``
+
+        :keyword  ex_address: Optional static address object to be assigned to
+                              the load balancer.
+        :type     ex_address: C{GCEAddress}
+
+        :keyword  ex_session_affinity: Optional algorithm to use for session
+                                       affinity.  This will modify the hashing
+                                       algorithm such that a client will tend
+                                       to stick to a particular Member.
+        :type     ex_session_affinity: ``str``
+
+        :return:  LoadBalancer object
+        :rtype:   :class:`LoadBalancer`
+        """
+        instance_groups = []
+        for member in members:
+            if member.extra.get('selfLink'):
+                    instance_groups.append(member.extra['selfLink'])
+
+        protocol = protocol.upper()
+
+        reg_bs = self.gce.ex_create_regional_backendservice(name, healthchecks=ex_healthchecks,
+            backends=instance_groups, protocol=protocol, region=ex_region)
+
+        # Create the Forwarding rule.
+        try:
+            forwarding_rule = self.gce.ex_create_forwarding_rule(
+                name, region=ex_region, protocol=protocol, scheme='internal',
+                ports=port, backend_service=reg_bs)
+        except:
+            raise
+
+        # Reformat forwarding rule to LoadBalancer object
+        return self._forwarding_rule_to_loadbalancer(forwarding_rule)
+
     def destroy_balancer(self, balancer):
         """
         Destroy a load balancer.
@@ -276,6 +348,9 @@ class GCELBDriver(Driver):
     def ex_create_healthcheck(self, *args, **kwargs):
         return self.gce.ex_create_healthcheck(*args, **kwargs)
 
+    def ex_create_tcp_healthcheck(self, *args, **kwargs):
+        return self.gce.ex_create_tcp_healthcheck(*args, **kwargs)
+
     def ex_list_healthchecks(self):
         return self.gce.ex_list_healthchecks()
 
@@ -362,8 +437,9 @@ class GCELBDriver(Driver):
         """
         extra = {}
         extra['forwarding_rule'] = forwarding_rule
-        extra['targetpool'] = forwarding_rule.targetpool
-        extra['healthchecks'] = forwarding_rule.targetpool.healthchecks
+        if forwarding_rule.targetpool:
+            extra['targetpool'] = forwarding_rule.targetpool
+            extra['healthchecks'] = forwarding_rule.targetpool.healthchecks
 
         return LoadBalancer(id=forwarding_rule.id,
                             name=forwarding_rule.name, state=None,
