@@ -3208,7 +3208,7 @@ class GCENodeDriver(NodeDriver):
         request = '/global/healthChecks'
 
         self.connection.async_request(request, method='POST', data=hc_data)
-        return self.ex_get_healthcheck(name)
+        return self.ex_get_tcp_healthcheck(name)
 
     def ex_create_firewall(self, name, allowed, network='default',
                            source_ranges=None, source_tags=None,
@@ -7627,7 +7627,7 @@ class GCENodeDriver(NodeDriver):
         if volume_name not in self._ex_volume_dict:
             # Possibly added through another thread/process, so re-populate
             # _volume_dict and try again.  If still not found, raise exception.
-            self._ex_populate_dict()
+            self._ex_populate_volume_dict()
             if volume_name not in self._ex_volume_dict:
                 raise ResourceNotFoundError(
                     'Volume name: \'%s\' not found. Zone: %s' % (
