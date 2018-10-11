@@ -8369,7 +8369,7 @@ class GCENodeDriver(NodeDriver):
         extra['host'] = healthcheck.get('host')
 
         return GCEHealthCheck(
-            id=healthcheck['id'], name=healthcheck['name'],
+            id=healthcheck['id'], name=healthcheck['name'], type=healthcheck['type'],
             path=healthcheck.get('requestPath'), port=healthcheck.get('port'),
             interval=healthcheck.get('checkIntervalSec'),
             timeout=healthcheck.get('timeoutSec'),
