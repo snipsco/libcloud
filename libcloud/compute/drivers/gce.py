@@ -3158,7 +3158,7 @@ class GCENodeDriver(NodeDriver):
                               unhealthy_threshold=None, healthy_threshold=None,
                               description=None):
         """
-        Create a TCP Health Check.
+        Create a Generic based on type Health Check.
 
         :param  name: Name of health check
         :type   name: ``str``
@@ -3192,17 +3192,30 @@ class GCENodeDriver(NodeDriver):
         :return:  Health Check object
         :rtype:   :class:`GCEHealthCheck`
         """
-        hc_data = {
-            'tcpHealthCheck': {
-                'proxyHeader': 'NONE'
+        hc_data = {}
+
+        if type == 'TCP':
+            hc_data = {
+                'type': 'TCP',
+                'tcpHealthCheck': {
+                    'proxyHeader': 'NONE',
+                    'port': port or 80
+                }
             }
-        }
+        elif type == 'HTTP':
+            hc_data = {
+                'type': 'HTTP',
+                'httpHealthCheck': {
+                    'proxyHeader': 'NONE',
+                    'port': port or 80,
+                    'path': path or '/'
+                }
+            }
+
         hc_data['name'] = name
         if description:
             hc_data['description'] = description
-        hc_data['type'] = type or 'TCP'
-        hc_data['requestPath'] = path or '/'
-        hc_data['tcpHealthCheck']['port'] = port or 80
+
         hc_data['checkIntervalSec'] = interval or 5
         hc_data['timeoutSec'] = timeout or 5
         hc_data['unhealthyThreshold'] = unhealthy_threshold or 2
