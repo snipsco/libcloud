@@ -3209,6 +3209,9 @@ class GCENodeDriver(NodeDriver):
 
         hc_data = {}
 
+        if type == None:
+            type = TCP
+
         if type in [TCP, SSL, HTTP, HTTPS]:
             if type == TCP:
                 hc_data = {
