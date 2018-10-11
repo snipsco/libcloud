@@ -3153,7 +3153,7 @@ class GCENodeDriver(NodeDriver):
         self.connection.async_request(request, method='POST', data=hc_data)
         return self.ex_get_healthcheck(name)
 
-    def ex_create_tcp_healthcheck(self, name, path=None, port=None,
+    def ex_create_tcp_healthcheck(self, name, type=None, path=None, port=None,
                               interval=None, timeout=None,
                               unhealthy_threshold=None, healthy_threshold=None,
                               description=None):
@@ -3162,6 +3162,9 @@ class GCENodeDriver(NodeDriver):
 
         :param  name: Name of health check
         :type   name: ``str``
+
+        :keyword  type: The type of the HealthCheck, either TCP, SSL, HTTP or HTTPS. Defaults to TCP.
+        :type     path: ``str``
 
         :keyword  path: The request path for the check.  Defaults to /.
         :type     path: ``str``
@@ -3190,7 +3193,6 @@ class GCENodeDriver(NodeDriver):
         :rtype:   :class:`GCEHealthCheck`
         """
         hc_data = {
-            'type': 'TCP',
             'tcpHealthCheck': {
                 'proxyHeader': 'NONE'
             }
@@ -3198,6 +3200,7 @@ class GCENodeDriver(NodeDriver):
         hc_data['name'] = name
         if description:
             hc_data['description'] = description
+        hc_data['type'] = type or 'TCP'
         hc_data['requestPath'] = path or '/'
         hc_data['tcpHealthCheck']['port'] = port or 80
         hc_data['checkIntervalSec'] = interval or 5
