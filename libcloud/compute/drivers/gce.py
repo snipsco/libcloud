@@ -3192,34 +3192,69 @@ class GCENodeDriver(NodeDriver):
         :return:  Health Check object
         :rtype:   :class:`GCEHealthCheck`
         """
+
+        # Protocol Types supported by the Health Check
+        TCP = 'TCP'
+        SSL = 'SSL'
+        HTTP = 'HTTP'
+        HTTPS = 'HTTPS'
+
+        # Strings constants to easy readability and reusability for the hc_data structure
+        HEALTH_CHECK = 'HealthCheck'
+        TYPE = 'type'
+        PROXY_HEADER = 'proxyHeader'
+        PORT = 'port'
+        PATH = 'requestPath'
+        NONE = 'NONE'
+
         hc_data = {}
 
-        if type == 'TCP':
-            hc_data = {
-                'type': 'TCP',
-                'tcpHealthCheck': {
-                    'proxyHeader': 'NONE',
-                    'port': port or 80
+        if type in [TCP, SSL, HTTP, HTTPS]:
+            if type == TCP:
+                hc_data = {
+                    TYPE: TCP,
+                    TCP.lower() + HEALTH_CHECK: {
+                        PROXY_HEADER: NONE,
+                        PORT: port or 80
+                    }
                 }
-            }
-        elif type == 'HTTP':
-            hc_data = {
-                'type': 'HTTP',
-                'httpHealthCheck': {
-                    'proxyHeader': 'NONE',
-                    'port': port or 80,
-                    'path': path or '/'
+            elif type == SSL:
+                hc_data = {
+                    TYPE: SSL,
+                    SSL.lower() + HEALTH_CHECK: {
+                        PROXY_HEADER: NONE,
+                        PORT: port or 443
+                    }
                 }
-            }
+            elif type == HTTP:
+                hc_data = {
+                    TYPE: HTTP,
+                    HTTP.lower() + HEALTH_CHECK: {
+                        PROXY_HEADER: NONE,
+                        PORT: port or 80,
+                        PATH: path or '/'
+                    }
+                }
+            elif type == HTTPS:
+                hc_data = {
+                    TYPE: HTTPS,
+                    HTTPS.lower() + HEALTH_CHECK: {
+                        PROXY_HEADER: NONE,
+                        PORT: port or 443,
+                        PATH: path or '/'
+                    }
+                }
 
-        hc_data['name'] = name
-        if description:
-            hc_data['description'] = description
+            hc_data['name'] = name
+            if description:
+                hc_data['description'] = description
 
-        hc_data['checkIntervalSec'] = interval or 5
-        hc_data['timeoutSec'] = timeout or 5
-        hc_data['unhealthyThreshold'] = unhealthy_threshold or 2
-        hc_data['healthyThreshold'] = healthy_threshold or 2
+            hc_data['checkIntervalSec'] = interval or 5
+            hc_data['timeoutSec'] = timeout or 5
+            hc_data['unhealthyThreshold'] = unhealthy_threshold or 2
+            hc_data['healthyThreshold'] = healthy_threshold or 2
+        else:
+            raise ValueError('The value received as type is not one of the predefined accepted values.', type)
 
         request = '/global/healthChecks'
 
