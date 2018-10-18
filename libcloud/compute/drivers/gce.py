@@ -2992,6 +2992,107 @@ class GCENodeDriver(NodeDriver):
                                       data=backendservice_data)
         return self.ex_get_backendservice(name)
 
+    def ex_create_regional_backendservice(self, name, healthchecks, backends=[],
+                                 protocol=None, description=None,
+                                 timeout_sec=None, enable_cdn=False, port=None,
+                                 port_name=None, region=None):
+        """
+        Create a regional Backend Service.
+
+        Scopes needed - one of the following:
+        * https://www.googleapis.com/auth/cloud-platform
+        * https://www.googleapis.com/auth/compute
+
+        :param  name:  Name of the resource. Provided by the client when the
+                       resource is created. The name must be 1-63 characters
+                       long, and comply with RFC1035. Specifically, the name
+                       must be 1-63 characters long and match the regular
+                       expression [a-z]([-a-z0-9]*[a-z0-9])? which means the
+                       first character must be a lowercase letter, and all
+                       following characters must be a dash, lowercase letter,
+                       or digit, except the last character, which cannot be a
+                       dash.
+        :type   name: ``str``
+
+        :param    healthchecks: A list of TCP Health Checks to use for this
+                                service.  There must be at least one.
+        :type     healthchecks: ``list`` of (``str`` or
+                                :class:`GCEHealthCheck`)
+
+        :keyword  backends:  The list of backends that serve this
+                             BackendService.
+        :type   backends: ``list`` of :class `GCEBackend` or list of ``dict``
+
+        :keyword  timeout_sec:  How many seconds to wait for the backend
+                                before considering it a failed request.
+                                Default is 30 seconds.
+        :type   timeout_sec: ``integer``
+
+        :keyword  enable_cdn:  If true, enable Cloud CDN for this
+                                 BackendService.  When the load balancing
+                                 scheme is INTERNAL, this field is not used.
+        :type   enable_cdn: ``bool``
+
+        :keyword  port:  Deprecated in favor of port_name. The TCP port to
+                         connect on the backend. The default value is 80.
+                         This cannot be used for internal load balancing.
+        :type   port: ``integer``
+
+        :keyword  port_name: Name of backend port. The same name should appear
+                             in the instance groups referenced by this service.
+        :type     port_name: ``str``
+
+        :keyword  protocol: The protocol this Backend Service uses to
+                            communicate with backends.
+                            Possible values are HTTP, HTTPS, HTTP2, TCP
+                            and SSL.
+        :type     protocol: ``str``
+
+        :return:  A Backend Service object.
+        :rtype:   :class:`GCEBackendService`
+        """
+        backendservice_data = {
+            'name': name,
+            'healthChecks': [],
+            'backends': [],
+            'loadBalancingScheme': 'INTERNAL'
+        }
+
+        for hc in healthchecks:
+            if not hasattr(hc, 'extra'):
+                hc = self.ex_get_tcp_healthcheck(name=hc)
+            backendservice_data['healthChecks'].append(hc.extra['selfLink'])
+
+        for be in backends:
+            backendservice_data['backends'].append({'group':be})
+
+        if port:
+            backendservice_data['port'] = port
+        if port_name:
+            backendservice_data['portName'] = port_name
+        if timeout_sec:
+            backendservice_data['timeoutSec'] = timeout_sec
+        if protocol:
+            if protocol in self.BACKEND_SERVICE_PROTOCOLS:
+                backendservice_data['protocol'] = protocol
+            else:
+                raise ValueError('Protocol must be one of %s' %
+                                 ','.join(self.BACKEND_SERVICE_PROTOCOLS))
+        if description:
+            backendservice_data['description'] = description
+
+        # TODO: check region is valid (from list of available regions)
+        region = region or self.region
+        # if not region: raise Error('Regional backend services should have a valid region')
+        if not hasattr(region, 'name'):
+            region = self.ex_get_region(region)
+        backendservice_data['region'] = region.extra['selfLink']
+        request = '/regions/%s/backendServices' % (region.name)
+
+        self.connection.async_request(request, method='POST',
+                                      data=backendservice_data)
+        return self.ex_get_regional_backendservice(name, region.name)
+
     def ex_create_healthcheck(self, name, host=None, path=None, port=None,
                               interval=None, timeout=None,
                               unhealthy_threshold=None, healthy_threshold=None,
@@ -3051,6 +3152,117 @@ class GCENodeDriver(NodeDriver):
 
         self.connection.async_request(request, method='POST', data=hc_data)
         return self.ex_get_healthcheck(name)
+
+    def ex_create_tcp_healthcheck(self, name, type=None, path=None, port=None,
+                              interval=None, timeout=None,
+                              unhealthy_threshold=None, healthy_threshold=None,
+                              description=None):
+        """
+        Create a Generic based on type Health Check.
+
+        :param  name: Name of health check
+        :type   name: ``str``
+
+        :keyword  type: The type of the HealthCheck, either TCP, SSL, HTTP or HTTPS. Defaults to TCP.
+        :type     path: ``str``
+
+        :keyword  path: The request path for the check.  Defaults to /.
+        :type     path: ``str``
+
+        :keyword  port: The TCP port number for the check.  Defaults to 80.
+        :type     port: ``int``
+
+        :keyword  interval: How often (in seconds) to check.  Defaults to 5.
+        :type     interval: ``int``
+
+        :keyword  timeout: How long to wait before failing. Defaults to 5.
+        :type     timeout: ``int``
+
+        :keyword  unhealthy_threshold: How many failures before marking
+                                       unhealthy.  Defaults to 2.
+        :type     unhealthy_threshold: ``int``
+
+        :keyword  healthy_threshold: How many successes before marking as
+                                     healthy.  Defaults to 2.
+        :type     healthy_threshold: ``int``
+
+        :keyword  description: The description of the check.  Defaults to None.
+        :type     description: ``str`` or ``None``
+
+        :return:  Health Check object
+        :rtype:   :class:`GCEHealthCheck`
+        """
+
+        # Protocol Types supported by the Health Check
+        TCP = 'TCP'
+        SSL = 'SSL'
+        HTTP = 'HTTP'
+        HTTPS = 'HTTPS'
+
+        # Strings constants to easy readability and reusability for the hc_data structure
+        HEALTH_CHECK = 'HealthCheck'
+        TYPE = 'type'
+        PROXY_HEADER = 'proxyHeader'
+        PORT = 'port'
+        PATH = 'requestPath'
+        NONE = 'NONE'
+
+        hc_data = {}
+
+        if type == None:
+            type = TCP
+
+        if type in [TCP, SSL, HTTP, HTTPS]:
+            if type == TCP:
+                hc_data = {
+                    TYPE: TCP,
+                    TCP.lower() + HEALTH_CHECK: {
+                        PROXY_HEADER: NONE,
+                        PORT: port or 80
+                    }
+                }
+            elif type == SSL:
+                hc_data = {
+                    TYPE: SSL,
+                    SSL.lower() + HEALTH_CHECK: {
+                        PROXY_HEADER: NONE,
+                        PORT: port or 443
+                    }
+                }
+            elif type == HTTP:
+                hc_data = {
+                    TYPE: HTTP,
+                    HTTP.lower() + HEALTH_CHECK: {
+                        PROXY_HEADER: NONE,
+                        PORT: port or 80,
+                        PATH: path or '/'
+                    }
+                }
+            elif type == HTTPS:
+                hc_data = {
+                    TYPE: HTTPS,
+                    HTTPS.lower() + HEALTH_CHECK: {
+                        PROXY_HEADER: NONE,
+                        PORT: port or 443,
+                        PATH: path or '/'
+                    }
+                }
+
+            hc_data['name'] = name
+            if description:
+                hc_data['description'] = description
+
+            hc_data['checkIntervalSec'] = interval or 5
+            hc_data['timeoutSec'] = timeout or 5
+            hc_data['unhealthyThreshold'] = unhealthy_threshold or 2
+            hc_data['healthyThreshold'] = healthy_threshold or 2
+        else:
+            raise ValueError('The value received as type is not one of the predefined accepted values.', type)
+
+        request = '/global/healthChecks'
+
+        self.connection.async_request(request, method='POST', data=hc_data)
+        return self.ex_get_tcp_healthcheck(name)
 
     def ex_create_firewall(self, name, allowed, network='default',
                            source_ranges=None, source_tags=None,
@@ -3126,7 +3338,8 @@ class GCENodeDriver(NodeDriver):
     def ex_create_forwarding_rule(self, name, target=None, region=None,
                                   protocol='tcp', port_range=None,
                                   address=None, description=None,
-                                  global_rule=False, targetpool=None):
+                                  global_rule=False, targetpool=None,
+                                  scheme='external', ports=None, backend_service=None):
         """
         Create a forwarding rule.
 
@@ -3168,10 +3381,26 @@ class GCENodeDriver(NodeDriver):
                               Use target instead.
         :type     targetpool: ``str`` or :class:`GCETargetPool`
 
+        :keyword  scheme: The type of scheme for the forwarding rule. Should be
+                          'internal' or 'external'.
+                          Default to 'external'.
+        :type     scheme: ``str``
+
+        :keyword  ports: The ports list to forward. Only used when internal
+                         scheme is selected.
+        :type     ports: ``str``
+
+        :keyword  backend_service: The backend service to attach to. Only used
+                                   when internal scheme is selected.
+        :type     backend_service: ``dict`` or :class:`GCEBackend`
+
         :return:  Forwarding Rule object
         :rtype:   :class:`GCEForwardingRule`
         """
-        forwarding_rule_data = {'name': name}
+        forwarding_rule_data = {
+            'name': name,
+            'loadBalancingScheme': scheme.upper()
+        }
         if global_rule:
             if not hasattr(target, 'name'):
                 target = self.ex_get_targethttpproxy(target)
@@ -3181,12 +3410,16 @@ class GCENodeDriver(NodeDriver):
                 region = self.ex_get_region(region)
             forwarding_rule_data['region'] = region.extra['selfLink']
 
-            if not target:
-                target = targetpool  # Backwards compatibility
-            if not hasattr(target, 'name'):
-                target = self.ex_get_targetpool(target, region)
+            if scheme.lower() != 'internal':
+                if not target:
+                    target = targetpool  # Backwards compatibility
+                if not hasattr(target, 'name'):
+                    target = self.ex_get_targetpool(target, region)
 
-        forwarding_rule_data['target'] = target.extra['selfLink']
+        if scheme.lower() != 'internal':
+            forwarding_rule_data['target'] = target.extra['selfLink']
+
+        # TODO: When the load balancing scheme is INTERNAL, only TCP and UDP are valid.
         forwarding_rule_data['IPProtocol'] = protocol.upper()
         if address:
             if not hasattr(address, 'name'):
@@ -3197,6 +3430,16 @@ class GCENodeDriver(NodeDriver):
             forwarding_rule_data['portRange'] = port_range
         if description:
             forwarding_rule_data['description'] = description
+
+        if ports:
+            if not isinstance(ports, list):
+                raise ValueError('ports attribute should be a list')
+            forwarding_rule_data['ports'] = ports
+        if backend_service:
+            if isinstance(backend_service, GCEBackend):
+                forwarding_rule_data['backendService'] = backend_service.extra.get('selfLink')
+            else:
+                forwarding_rule_data['backendService'] = backend_service.get('selfLink')
 
         if global_rule:
             request = '/global/forwardingRules'
@@ -6224,6 +6467,20 @@ class GCENodeDriver(NodeDriver):
         self.connection.async_request(request, method='DELETE')
         return True
 
+    def ex_destroy_tcp_healthcheck(self, healthcheck):
+        """
+        Destroy a TCP healthcheck.
+
+        :param  healthcheck: Health check object to destroy
+        :type   healthcheck: :class:`GCEHealthCheck`
+
+        :return:  True if successful
+        :rtype:   ``bool``
+        """
+        request = '/global/healthChecks/%s' % (healthcheck.name)
+        self.connection.async_request(request, method='DELETE')
+        return True
+
     def ex_destroy_firewall(self, firewall):
         """
         Destroy a firewall.
@@ -6709,6 +6966,23 @@ class GCENodeDriver(NodeDriver):
         response = self.connection.request(request, method='GET').object
         return self._to_backendservice(response)
 
+    def ex_get_regional_backendservice(self, name, region_name):
+        """
+        Return a regional Backend Service object based on name and region
+
+        :param  name: The name of the backend service
+        :type   name: ``str``
+
+        :param  region_name: The region name of the backend service
+        :type   region_name: ``str``
+
+        :return:  A representation of the backend service
+        :rtype:   ``dict``
+        """
+        request = '/regions/%s/backendServices/%s' % (region_name, name)
+        response = self.connection.request(request, method='GET').object
+        return response
+
     def ex_get_healthcheck(self, name):
         """
         Return a HealthCheck object based on the healthcheck name.
@@ -6720,6 +6994,20 @@ class GCENodeDriver(NodeDriver):
         :rtype:   :class:`GCEHealthCheck`
         """
         request = '/global/httpHealthChecks/%s' % (name)
+        response = self.connection.request(request, method='GET').object
+        return self._to_healthcheck(response)
+
+    def ex_get_tcp_healthcheck(self, name):
+        """
+        Return a TCP HealthCheck object based on the healthcheck name.
+
+        :param  name: The name of the healthcheck
+        :type   name: ``str``
+
+        :return:  A GCEHealthCheck object
+        :rtype:   :class:`GCEHealthCheck`
+        """
+        request = '/global/healthChecks/%s' % (name)
         response = self.connection.request(request, method='GET').object
         return self._to_healthcheck(response)
 
@@ -7393,7 +7681,7 @@ class GCENodeDriver(NodeDriver):
         if volume_name not in self._ex_volume_dict:
             # Possibly added through another thread/process, so re-populate
             # _volume_dict and try again.  If still not found, raise exception.
-            self._ex_populate_dict()
+            self._ex_populate_volume_dict()
             if volume_name not in self._ex_volume_dict:
                 raise ResourceNotFoundError(
                     'Volume name: \'%s\' not found. Zone: %s' % (
@@ -8136,7 +8424,10 @@ class GCENodeDriver(NodeDriver):
         region = forwarding_rule.get('region')
         if region:
             region = self.ex_get_region(region)
-        target = self._get_object_by_kind(forwarding_rule['target'])
+
+        target = forwarding_rule.get('target')
+        if target:
+            target = self._get_object_by_kind(forwarding_rule['target'])
 
         return GCEForwardingRule(id=forwarding_rule['id'],
                                  name=forwarding_rule['name'], region=region,
